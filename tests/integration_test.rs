@@ -86,6 +86,40 @@ fn test_invalid_json() {
 
     // Should fail
     assert!(!output.status.success());
+
+    // Error message should contain line information
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("At line"));
+}
+
+#[test]
+fn test_syntax_error_details() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("syntax_error.json");
+
+    // Write JSON with a syntax error on a specific line
+    let invalid_json = r#"{
+  "name": "Alice",
+  "age": 30,
+  "city": "New York"
+  "country": "USA"
+}
+"#;
+    fs::write(&test_file, invalid_json).unwrap();
+
+    // Run jsonf
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    // Should fail
+    assert!(!output.status.success());
+
+    // Error message should contain the problematic line and line number
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("At line"));
+    assert!(stderr.contains("\"country\"") || stderr.contains("\"city\""));
 }
 
 #[test]

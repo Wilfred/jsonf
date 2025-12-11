@@ -29,6 +29,22 @@ fn main() {
         Ok(value) => value,
         Err(err) => {
             eprintln!("Error parsing JSON: {}", err);
+
+            // Show the problematic line with line number
+            let line_num = err.line();
+            let col_num = err.column();
+            let lines: Vec<&str> = content.lines().collect();
+
+            if line_num > 0 && line_num <= lines.len() {
+                eprintln!("\nAt line {}:", line_num);
+                eprintln!("  {}", lines[line_num - 1]);
+
+                // Show a caret pointing to the error column
+                if col_num > 0 {
+                    eprintln!("  {}^", " ".repeat(col_num - 1));
+                }
+            }
+
             process::exit(1);
         }
     };
