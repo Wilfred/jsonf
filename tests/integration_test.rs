@@ -123,6 +123,123 @@ fn test_syntax_error_details() {
 }
 
 #[test]
+fn test_sort_flag_sorts_string_array() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("sort.json");
+
+    let unformatted = r#"{"fruits":["banana","apple","cherry"]}"#;
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg("--sort")
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = r#"{
+  "fruits": [
+    "apple",
+    "banana",
+    "cherry"
+  ]
+}
+"#;
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_sort_flag_sorts_number_array() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("sort_numbers.json");
+
+    let unformatted = r#"{"values":[3,1,2]}"#;
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg("--sort")
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = r#"{
+  "values": [
+    1,
+    2,
+    3
+  ]
+}
+"#;
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_sort_flag_sorts_nested_arrays() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("sort_nested.json");
+
+    let unformatted = r#"{"data":{"tags":["zebra","alpha"],"nums":[5,2,8]}}"#;
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg("-s")
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = r#"{
+  "data": {
+    "nums": [
+      2,
+      5,
+      8
+    ],
+    "tags": [
+      "alpha",
+      "zebra"
+    ]
+  }
+}
+"#;
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_without_sort_preserves_array_order() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("no_sort.json");
+
+    let unformatted = r#"{"items":["banana","apple","cherry"]}"#;
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = r#"{
+  "items": [
+    "banana",
+    "apple",
+    "cherry"
+  ]
+}
+"#;
+    assert_eq!(formatted, expected);
+}
+
+#[test]
 fn test_nonexistent_file() {
     // Run jsonf on a file that doesn't exist
     let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))

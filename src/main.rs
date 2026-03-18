@@ -1,4 +1,5 @@
 use clap::Parser;
+use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
@@ -10,6 +11,10 @@ use std::process;
 struct Cli {
     /// Path to the JSON file to format
     file: PathBuf,
+
+    /// Sort arrays in addition to formatting
+    #[arg(short, long)]
+    sort: bool,
 }
 
 fn main() {
@@ -25,7 +30,7 @@ fn main() {
     };
 
     // Parse JSON
-    let json_value: serde_json::Value = match serde_json::from_str(&content) {
+    let mut json_value: serde_json::Value = match serde_json::from_str(&content) {
         Ok(value) => value,
         Err(err) => {
             eprintln!("Error parsing JSON: {}", err);
@@ -49,6 +54,10 @@ fn main() {
         }
     };
 
+    if cli.sort {
+        sort_arrays(&mut json_value);
+    }
+
     // Format JSON with pretty printing
     let formatted = match serde_json::to_string_pretty(&json_value) {
         Ok(formatted) => formatted,
@@ -65,4 +74,58 @@ fn main() {
     }
 
     println!("Formatted {}", cli.file.display());
+}
+
+fn sort_arrays(value: &mut Value) {
+    match value {
+        Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                sort_arrays(item);
+            }
+            arr.sort_by(compare_values);
+        }
+        Value::Object(map) => {
+            for (_key, val) in map.iter_mut() {
+                sort_arrays(val);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
+    match (a, b) {
+        (Value::Null, Value::Null) => std::cmp::Ordering::Equal,
+        (Value::Null, _) => std::cmp::Ordering::Less,
+        (_, Value::Null) => std::cmp::Ordering::Greater,
+        (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+        (Value::Bool(_), _) => std::cmp::Ordering::Less,
+        (_, Value::Bool(_)) => std::cmp::Ordering::Greater,
+        (Value::Number(a), Value::Number(b)) => {
+            let a = a.as_f64().unwrap_or(0.0);
+            let b = b.as_f64().unwrap_or(0.0);
+            a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
+        }
+        (Value::Number(_), _) => std::cmp::Ordering::Less,
+        (_, Value::Number(_)) => std::cmp::Ordering::Greater,
+        (Value::String(a), Value::String(b)) => a.cmp(b),
+        (Value::String(_), _) => std::cmp::Ordering::Less,
+        (_, Value::String(_)) => std::cmp::Ordering::Greater,
+        (Value::Array(a), Value::Array(b)) => {
+            for (ai, bi) in a.iter().zip(b.iter()) {
+                let ord = compare_values(ai, bi);
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+            a.len().cmp(&b.len())
+        }
+        (Value::Array(_), _) => std::cmp::Ordering::Less,
+        (_, Value::Array(_)) => std::cmp::Ordering::Greater,
+        (Value::Object(a), Value::Object(b)) => {
+            let a_str = serde_json::to_string(a).unwrap_or_default();
+            let b_str = serde_json::to_string(b).unwrap_or_default();
+            a_str.cmp(&b_str)
+        }
+    }
 }
