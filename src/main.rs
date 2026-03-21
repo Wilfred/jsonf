@@ -1,6 +1,7 @@
 use clap::Parser;
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process;
 
@@ -38,11 +39,9 @@ fn main() {
             // Show the problematic line with line number
             let line_num = err.line();
             let col_num = err.column();
-            let lines: Vec<&str> = content.lines().collect();
-
-            if line_num > 0 && line_num <= lines.len() {
+            if let Some(line) = content.lines().nth(line_num - 1) {
                 eprintln!("\nAt line {}:", line_num);
-                eprintln!("  {}", lines[line_num - 1]);
+                eprintln!("  {}", line);
 
                 // Show a caret pointing to the error column
                 if col_num > 0 {
@@ -54,21 +53,27 @@ fn main() {
         }
     };
 
+    // Drop the original content string to free memory before generating output
+    drop(content);
+
     if cli.sort {
         sort_arrays(&mut json_value);
     }
 
-    // Format JSON with pretty printing
-    let formatted = match serde_json::to_string_pretty(&json_value) {
-        Ok(formatted) => formatted,
+    // Format JSON with pretty printing and write using a buffered writer
+    let file = match fs::File::create(&cli.file) {
+        Ok(f) => f,
         Err(err) => {
-            eprintln!("Error formatting JSON: {}", err);
+            eprintln!("Error writing file '{}': {}", cli.file.display(), err);
             process::exit(1);
         }
     };
-
-    // Write back to the file
-    if let Err(err) = fs::write(&cli.file, formatted + "\n") {
+    let mut writer = std::io::BufWriter::new(file);
+    if let Err(err) = serde_json::to_writer_pretty(&mut writer, &json_value) {
+        eprintln!("Error formatting JSON: {}", err);
+        process::exit(1);
+    }
+    if let Err(err) = writer.write_all(b"\n") {
         eprintln!("Error writing file '{}': {}", cli.file.display(), err);
         process::exit(1);
     }
@@ -123,9 +128,22 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
         (Value::Array(_), _) => std::cmp::Ordering::Less,
         (_, Value::Array(_)) => std::cmp::Ordering::Greater,
         (Value::Object(a), Value::Object(b)) => {
-            let a_str = serde_json::to_string(a).unwrap_or_default();
-            let b_str = serde_json::to_string(b).unwrap_or_default();
-            a_str.cmp(&b_str)
+            // Compare structurally by iterating keys, avoiding expensive serialization
+            let mut a_keys: Vec<&String> = a.keys().collect();
+            let mut b_keys: Vec<&String> = b.keys().collect();
+            a_keys.sort();
+            b_keys.sort();
+            match a_keys.cmp(&b_keys) {
+                std::cmp::Ordering::Equal => {}
+                ord => return ord,
+            }
+            for key in a_keys {
+                let ord = compare_values(&a[key], &b[key]);
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+            std::cmp::Ordering::Equal
         }
     }
 }
