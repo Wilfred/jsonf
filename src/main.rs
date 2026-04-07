@@ -10,8 +10,9 @@ use std::process;
 #[command(version)]
 #[command(about = "A simple JSON formatter that pretty-prints JSON files", long_about = None)]
 struct Cli {
-    /// Path to the JSON file to format
-    file: PathBuf,
+    /// Paths to JSON files to format
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
 
     /// Sort arrays in addition to formatting
     #[arg(short, long)]
@@ -21,64 +22,64 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    // Read the file
-    let content = match fs::read_to_string(&cli.file) {
-        Ok(content) => content,
-        Err(err) => {
-            eprintln!("Error reading file '{}': {}", cli.file.display(), err);
-            process::exit(1);
+    let mut had_error = false;
+
+    for file in &cli.files {
+        if let Err(err) = format_file(file, cli.sort) {
+            eprintln!("{err}");
+            had_error = true;
         }
-    };
+    }
+
+    if had_error {
+        process::exit(1);
+    }
+}
+
+fn format_file(file: &PathBuf, sort: bool) -> Result<(), String> {
+    // Read the file
+    let content = fs::read_to_string(file)
+        .map_err(|err| format!("Error reading file '{}': {}", file.display(), err))?;
 
     // Parse JSON
-    let mut json_value: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("Error parsing JSON: {}", err);
+    let mut json_value: serde_json::Value = serde_json::from_str(&content).map_err(|err| {
+        let mut msg = format!("Error parsing JSON in '{}': {}", file.display(), err);
 
-            // Show the problematic line with line number
-            let line_num = err.line();
-            let col_num = err.column();
-            if let Some(line) = content.lines().nth(line_num - 1) {
-                eprintln!("\nAt line {}:", line_num);
-                eprintln!("  {}", line);
+        // Show the problematic line with line number
+        let line_num = err.line();
+        let col_num = err.column();
+        if let Some(line) = content.lines().nth(line_num - 1) {
+            msg.push_str(&format!("\n\nAt line {}:", line_num));
+            msg.push_str(&format!("\n  {}", line));
 
-                // Show a caret pointing to the error column
-                if col_num > 0 {
-                    eprintln!("  {}^", " ".repeat(col_num - 1));
-                }
+            // Show a caret pointing to the error column
+            if col_num > 0 {
+                msg.push_str(&format!("\n  {}^", " ".repeat(col_num - 1)));
             }
-
-            process::exit(1);
         }
-    };
+
+        msg
+    })?;
 
     // Drop the original content string to free memory before generating output
     drop(content);
 
-    if cli.sort {
+    if sort {
         sort_arrays(&mut json_value);
     }
 
     // Format JSON with pretty printing and write using a buffered writer
-    let file = match fs::File::create(&cli.file) {
-        Ok(f) => f,
-        Err(err) => {
-            eprintln!("Error writing file '{}': {}", cli.file.display(), err);
-            process::exit(1);
-        }
-    };
-    let mut writer = std::io::BufWriter::new(file);
-    if let Err(err) = serde_json::to_writer_pretty(&mut writer, &json_value) {
-        eprintln!("Error formatting JSON: {}", err);
-        process::exit(1);
-    }
-    if let Err(err) = writer.write_all(b"\n") {
-        eprintln!("Error writing file '{}': {}", cli.file.display(), err);
-        process::exit(1);
-    }
+    let out_file = fs::File::create(file)
+        .map_err(|err| format!("Error writing file '{}': {}", file.display(), err))?;
+    let mut writer = std::io::BufWriter::new(out_file);
+    serde_json::to_writer_pretty(&mut writer, &json_value)
+        .map_err(|err| format!("Error formatting JSON: {}", err))?;
+    writer
+        .write_all(b"\n")
+        .map_err(|err| format!("Error writing file '{}': {}", file.display(), err))?;
 
-    println!("Formatted {}", cli.file.display());
+    println!("Formatted {}", file.display());
+    Ok(())
 }
 
 fn sort_arrays(value: &mut Value) {

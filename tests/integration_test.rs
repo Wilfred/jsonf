@@ -250,3 +250,53 @@ fn test_nonexistent_file() {
     // Should fail
     assert!(!output.status.success());
 }
+
+#[test]
+fn test_multiple_files() {
+    let temp_dir = TempDir::new().unwrap();
+    let file1 = temp_dir.path().join("a.json");
+    let file2 = temp_dir.path().join("b.json");
+
+    fs::write(&file1, r#"{"key":"value1"}"#).unwrap();
+    fs::write(&file2, r#"{"key":"value2"}"#).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&file1)
+        .arg(&file2)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted1 = fs::read_to_string(&file1).unwrap();
+    assert_eq!(formatted1, "{\n  \"key\": \"value1\"\n}\n");
+
+    let formatted2 = fs::read_to_string(&file2).unwrap();
+    assert_eq!(formatted2, "{\n  \"key\": \"value2\"\n}\n");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Formatted"));
+}
+
+#[test]
+fn test_multiple_files_with_error_continues() {
+    let temp_dir = TempDir::new().unwrap();
+    let good_file = temp_dir.path().join("good.json");
+    let bad_file = temp_dir.path().join("bad.json");
+
+    fs::write(&good_file, r#"{"key":"value"}"#).unwrap();
+    fs::write(&bad_file, "not valid json").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&bad_file)
+        .arg(&good_file)
+        .output()
+        .unwrap();
+
+    // Should fail overall because one file had an error
+    assert!(!output.status.success());
+
+    // But the good file should still be formatted
+    let formatted = fs::read_to_string(&good_file).unwrap();
+    assert_eq!(formatted, "{\n  \"key\": \"value\"\n}\n");
+}
