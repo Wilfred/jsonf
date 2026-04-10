@@ -16,6 +16,23 @@ $ jsonf --sort your_file.json
 
 Any arrays in `your_file.json` are now in order.
 
+## JSON Lines
+
+jsonf also supports [JSON Lines](https://jsonlines.org/) files (`.jsonl`).
+Each line is parsed as a separate JSON value and re-serialized in compact
+form, so each record stays on a single line.
+
+```
+$ jsonf your_file.jsonl
+```
+
+With `--sort`, jsonf sorts arrays inside each record and sorts the lines
+themselves by their JSON content.
+
+```
+$ jsonf --sort your_file.jsonl
+```
+
 ## Why?
 
 I frequently deal with big JSON files and pretty-printed files are way

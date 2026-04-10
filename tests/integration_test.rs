@@ -279,6 +279,113 @@ fn test_multiple_files() {
 }
 
 #[test]
+fn test_format_jsonl() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("test.jsonl");
+
+    // Write a JSONL file with records on each line. Some have extra whitespace
+    // that should be normalized to compact form.
+    let unformatted = "{\"name\":\"Alice\",\"age\":30}\n{  \"name\" : \"Bob\" , \"age\" : 25 }\n{\"name\":\"Carol\",\"age\":40}\n";
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    // Each record is compacted to a single line. Keys are sorted alphabetically
+    // by serde_json, and original record order is preserved without --sort.
+    let expected = "{\"age\":30,\"name\":\"Alice\"}\n{\"age\":25,\"name\":\"Bob\"}\n{\"age\":40,\"name\":\"Carol\"}\n";
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_format_jsonl_skips_blank_lines() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("blank.jsonl");
+
+    let unformatted = "{\"a\":1}\n\n{\"b\":2}\n";
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = "{\"a\":1}\n{\"b\":2}\n";
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_sort_jsonl_sorts_lines_and_inner_arrays() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("sort.jsonl");
+
+    // Records are out of order, and each record has an unsorted array.
+    let unformatted = "{\"id\":3,\"tags\":[\"c\",\"a\",\"b\"]}\n{\"id\":1,\"tags\":[\"z\",\"x\"]}\n{\"id\":2,\"tags\":[\"m\",\"k\"]}\n";
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg("--sort")
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    // Lines are sorted by JSON content (id ascending) and inner arrays are sorted.
+    let expected = "{\"id\":1,\"tags\":[\"x\",\"z\"]}\n{\"id\":2,\"tags\":[\"k\",\"m\"]}\n{\"id\":3,\"tags\":[\"a\",\"b\",\"c\"]}\n";
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_jsonl_without_sort_preserves_line_order() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("no_sort.jsonl");
+
+    let unformatted = "{\"id\":3}\n{\"id\":1}\n{\"id\":2}\n";
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = "{\"id\":3}\n{\"id\":1}\n{\"id\":2}\n";
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_invalid_jsonl_reports_line_number() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("bad.jsonl");
+
+    // Second line is invalid JSON.
+    let content = "{\"a\":1}\nnot valid json\n{\"b\":2}\n";
+    fs::write(&test_file, content).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("At line 2"));
+}
+
+#[test]
 fn test_multiple_files_with_error_continues() {
     let temp_dir = TempDir::new().unwrap();
     let good_file = temp_dir.path().join("good.json");
