@@ -303,11 +303,54 @@ fn test_format_jsonl() {
 }
 
 #[test]
-fn test_format_jsonl_skips_blank_lines() {
+fn test_format_jsonl_whitespace_between_values() {
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("blank.jsonl");
 
+    // Blank lines / whitespace between values is fine
     let unformatted = "{\"a\":1}\n\n{\"b\":2}\n";
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = "{\"a\":1}\n{\"b\":2}\n";
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_format_jsonl_multiple_values_per_line() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("multi.jsonl");
+
+    // Two JSON values on the same line
+    let unformatted = "{\"a\":1} {\"b\":2}\n";
+    fs::write(&test_file, unformatted).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
+        .arg(&test_file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let formatted = fs::read_to_string(&test_file).unwrap();
+    let expected = "{\"a\":1}\n{\"b\":2}\n";
+    assert_eq!(formatted, expected);
+}
+
+#[test]
+fn test_format_jsonl_multiline_value() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("multiline.jsonl");
+
+    // A single JSON value spanning multiple lines, followed by another
+    let unformatted = "{\n  \"a\": 1\n}\n{\"b\":2}\n";
     fs::write(&test_file, unformatted).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_jsonf"))
@@ -346,7 +389,7 @@ fn test_sort_jsonl_sorts_lines_and_inner_arrays() {
 }
 
 #[test]
-fn test_jsonl_without_sort_preserves_line_order() {
+fn test_jsonl_without_sort_preserves_value_order() {
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("no_sort.jsonl");
 

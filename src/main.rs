@@ -96,21 +96,22 @@ fn format_jsonl_file(file: &PathBuf, sort: bool) -> Result<(), String> {
     let content = fs::read_to_string(file)
         .map_err(|err| format!("Error reading file '{}': {}", file.display(), err))?;
 
-    // Parse each non-empty line as a separate JSON value
+    // Parse a sequence of JSON values (not necessarily one per line)
     let mut values: Vec<Value> = Vec::new();
-    for (idx, line) in content.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let value: Value = serde_json::from_str(line).map_err(|err| {
+    let deserializer = serde_json::Deserializer::from_str(&content);
+    for result in deserializer.into_iter::<Value>() {
+        let value = result.map_err(|err| {
             let mut msg = format!("Error parsing JSON in '{}': {}", file.display(), err);
-            let line_num = idx + 1;
-            msg.push_str(&format!("\n\nAt line {}:", line_num));
-            msg.push_str(&format!("\n  {}", line));
 
+            let line_num = err.line();
             let col_num = err.column();
-            if col_num > 0 {
-                msg.push_str(&format!("\n  {}^", " ".repeat(col_num - 1)));
+            if let Some(line) = content.lines().nth(line_num - 1) {
+                msg.push_str(&format!("\n\nAt line {}:", line_num));
+                msg.push_str(&format!("\n  {}", line));
+
+                if col_num > 0 {
+                    msg.push_str(&format!("\n  {}^", " ".repeat(col_num - 1)));
+                }
             }
 
             msg
