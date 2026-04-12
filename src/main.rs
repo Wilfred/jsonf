@@ -2,15 +2,15 @@ use clap::Parser;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 #[derive(Parser)]
 #[command(name = "jsonf")]
 #[command(version)]
-#[command(about = "A simple JSON formatter that pretty-prints JSON files", long_about = None)]
+#[command(about = "A simple JSON formatter that pretty-prints JSON and JSON Lines files", long_about = None)]
 struct Cli {
-    /// Paths to JSON files to format
+    /// Paths to JSON or JSON Lines files to format
     #[arg(required = true)]
     files: Vec<PathBuf>,
 
@@ -36,47 +36,62 @@ fn main() {
     }
 }
 
+fn is_jsonl(file: &Path) -> bool {
+    file.extension().and_then(|e| e.to_str()) == Some("jsonl")
+}
+
 fn format_file(file: &PathBuf, sort: bool) -> Result<(), String> {
-    // Read the file
     let content = fs::read_to_string(file)
         .map_err(|err| format!("Error reading file '{}': {}", file.display(), err))?;
 
-    // Parse JSON
-    let mut json_value: serde_json::Value = serde_json::from_str(&content).map_err(|err| {
-        let mut msg = format!("Error parsing JSON in '{}': {}", file.display(), err);
+    // Parse a stream of JSON values. A .json file is just a stream of one.
+    let mut values: Vec<Value> = Vec::new();
+    let deserializer = serde_json::Deserializer::from_str(&content);
+    for result in deserializer.into_iter::<Value>() {
+        let value = result.map_err(|err| {
+            let mut msg = format!("Error parsing JSON in '{}': {}", file.display(), err);
 
-        // Show the problematic line with line number
-        let line_num = err.line();
-        let col_num = err.column();
-        if let Some(line) = content.lines().nth(line_num - 1) {
-            msg.push_str(&format!("\n\nAt line {}:", line_num));
-            msg.push_str(&format!("\n  {}", line));
+            let line_num = err.line();
+            let col_num = err.column();
+            if let Some(line) = content.lines().nth(line_num - 1) {
+                msg.push_str(&format!("\n\nAt line {}:", line_num));
+                msg.push_str(&format!("\n  {}", line));
 
-            // Show a caret pointing to the error column
-            if col_num > 0 {
-                msg.push_str(&format!("\n  {}^", " ".repeat(col_num - 1)));
+                if col_num > 0 {
+                    msg.push_str(&format!("\n  {}^", " ".repeat(col_num - 1)));
+                }
             }
-        }
 
-        msg
-    })?;
+            msg
+        })?;
+        values.push(value);
+    }
 
-    // Drop the original content string to free memory before generating output
     drop(content);
 
     if sort {
-        sort_arrays(&mut json_value);
+        for value in values.iter_mut() {
+            sort_arrays(value);
+        }
+        values.sort_by(compare_values);
     }
 
-    // Format JSON with pretty printing and write using a buffered writer
+    let jsonl = is_jsonl(file);
     let out_file = fs::File::create(file)
         .map_err(|err| format!("Error writing file '{}': {}", file.display(), err))?;
     let mut writer = std::io::BufWriter::new(out_file);
-    serde_json::to_writer_pretty(&mut writer, &json_value)
+
+    for value in &values {
+        if jsonl {
+            serde_json::to_writer(&mut writer, value)
+        } else {
+            serde_json::to_writer_pretty(&mut writer, value)
+        }
         .map_err(|err| format!("Error formatting JSON: {}", err))?;
-    writer
-        .write_all(b"\n")
-        .map_err(|err| format!("Error writing file '{}': {}", file.display(), err))?;
+        writer
+            .write_all(b"\n")
+            .map_err(|err| format!("Error writing file '{}': {}", file.display(), err))?;
+    }
 
     println!("Formatted {}", file.display());
     Ok(())
